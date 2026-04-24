@@ -1,0 +1,208 @@
+---
+title: "STL_LAHERRERE_MOGE"
+author: "Moge Aurélian"
+date: "2026-04-24"
+output: html_document
+---
+
+On installe les packages nécessaires
+
+```{r}
+library(zoo) #format de serie temporelle pratique et facile d'utilisation
+library(tseries) #diverses fonctions sur les séries temporelles
+library(tidyverse) #pour la manipulation des données
+library(forecast) #fonctions utiles pour les séries temporelles
+library(fUnitRoots) #pour le test ADF
+
+```
+
+###################################
+##### Partie 1 : les données ######
+###################################
+
+# Question 1
+# ----------
+
+On importe les données et on modifie légèrement la structure du fichier pour l'exploiter dans la suite du travail.
+
+```{r}
+df <- read.csv("valeurs_mensuelles_volailles.csv", sep=";")
+df <- df[-c(1,2,3), ] # on ne conserve que les lignes avec des valeurs renseignées
+df <- df[, c(1,2)]    # on ne conserve que les colonnes avec la date et l'indice
+df <- df %>%          # on renomme la colonne des indices pour la manipuler facilement
+  rename("Indice_volailles" 
+         = "Indice.brut.de.la.production.industrielle..base.100.en.2021....Transformation.et.conservation.de.la.viande.de.volaille..NAF.rév..2..niveau.classe..poste.10.12.")
+
+
+summary(df)
+```
+
+On transforme le fichier pour l'utiliser comme une série temporelle. 
+
+```{r}
+# On convertit en série zoo la colonne des indices
+df$Indice_volailles <- as.numeric(gsub(",", ".", df$Indice_volailles))
+
+### Construction de la série temporelle
+
+# On enregistre la série dans un fichier xm.source (on ajoute "01" à la date pour simuler une date journalière)
+xm.source <- zoo(df$Indice_volailles, order.by = as.Date(paste0(df$Libellé, "-01")))
+
+# On définit la taille de la série temporelle (434 observations)
+T <- length(xm.source)
+
+# On enregistre ces observations dans un fichier à part, mais on enlève les 4 dernières observations, car on cherche à les prédire
+xm <- head(xm.source, T-4)
+```
+
+On regarde l'allure de la série avant transformation.
+
+```{r}
+plot(xm)
+```
+
+# Question 2
+# ----------
+
+On trouve dans la représentation de la série une tendance, non monotone, avec une augmentation tendancielle entre 1990 et 2000, puis une diminution tendancielle. Il semble également que la série ait une composante saisonnière, avec des fluctuations annuelles. 
+
+On vérifie cela en regardant la fonction d'autocorrélation de la série.
+
+```{r}
+acf(as.numeric(xm))
+```
+
+On voit beaucoup de pics, à peine décroissants et largement en dehors des bornes. La série semble donc non-stationnaire, ainsi qu'on pouvait le voir sur le graphique précédent.
+
+Pour le vérifier, on réalise un test ADF avec lag automatique.
+
+```{r}
+adf.test(as.numeric(xm))
+```
+Le test n'est pas significatif au seuil de 5% et on ne peut donc pas rejeter l'hypothèse de non-stationnarité pour ce niveau de confiance
+
+De plus, la série semble avoir une tendance déterministe forte : c'est ce que suggère la régression linéaire suivante (les coefficients ne sont pas interprétables mais peuvent nous aider à mieux calibrer nos tests).
+
+```{r}
+dates <- as.yearmon(seq(from = 1990 + 0 / 12, to = 2025 + 9 / 12, by = 1 / 12))
+summary(lm(xm ~ dates))
+```
+
+
+La régression suggère l'existence d'une forte composante liée à la tendance déterministe : pour tester la stationnarité de la série, on utilise donc des tests KPSS.
+
+```{r}
+# On test la stationnarité autour d'une moyenne
+kpss.test(xm)
+```
+```{r}
+# On test la stationnarité autour d'une tendance
+kpss.test(xm, null = "Trend")
+```
+Dans ces tests de type KPSS, l'hypothèse nulle est la stationnarité. Or, elle est rejetée dans les deux cas, à la fois autour d'une moyenne et autour d'une tendance : la série n'est stationnaire ni en niveau ni autour d'une tendance. 
+
+On peut décomposer les deux effets - tendance et saisonnalité - comme suit.
+
+```{r}
+# On renseigne que la période de la série est 12
+xm_ts <- ts(coredata(xm), frequency = 12)
+
+# On affiche la décomposition STL de la série
+plot(stl(xm_ts, s.window = "periodic"))
+
+```
+Une première différenciation avec un lag égal à 1 semble pertinente. On vérifie en utilisant les fonctions nsdiffs et ndiffs, qui indiquent, en se fondant sur un test de Canova-Hansen, le nombre de différenciations nécessaires pour éliminer la composante saisonnière (nsdiffs) et la tendance de la série (ndiffs).
+
+```{r}
+nsdiffs(xm_ts)
+ndiffs(xm_ts)
+
+```
+
+Il y a donc une tendance, à éliminer par une différenciation simple, mais pas de composante saisonnière telle qu'identifiée par un test de Canova-Hansen. 
+
+On crée donc une série différenciée une fois, i.e. une nouvelle colonne xm_d1 qui représente la série $Y_n = X_n - X_{n-1}$.
+
+```{r}
+xm_d1 <- diff(xm, lag = 1)  # on différencie avec un lag = 1
+xm_d1 <- na.omit(xm_d1)     # on supprime le NA créé par la différenciation
+```
+
+On représente cette série ci-dessous.
+
+```{r}
+
+plot(xm_d1)
+```
+On semble avoir éliminé l'essentiel de la composante tendancielle : hormis quelques pics exceptionnels, notamment en 1998, la série est caractérisée par des oscillations relativement régulières autour de 0. On vérifie cependant, dans la fonction d'autocorrélation, qu'il ne reste pas une composante saisonnière, liée par exemple à des variations intra-annuelles typiques. 
+
+```{r}
+acf(as.numeric(xm_d1), lag.max = 48) # on choisit 48 car on s'attend à des multiples de 12
+```
+On constate effectivement un pic en 12, qui pourrait indiquer une saisonnalité. On essaie par conséquent de différencier à nouveau avec un lag égal à 12.
+
+```{r}
+xm_d1_d12 <- diff(xm_d1, lag = 12)
+xm_d1_d12 <- na.omit(xm_d1_d12)
+
+plot(xm_d1_d12)
+```
+```{r}
+acf(as.numeric(xm_d1_d12), lag.max = 48)
+```
+La fonction d'autocorrélation de xm_d1_d12 montre une dégradation de la stationnarité par cette nouvelle différenciation, qui atteste de ce que notre première différenciation suffisait. On garde donc xm_d1 et on regarde ce que les tests ADF et KPSS disent de sa stationnarité. 
+
+D'abord un test ADF
+```{r}
+adf.test(as.numeric(xm_d1))
+```
+Le test ADF permet de rejeter l'hypothèse de non-stationnarité au seuil de 1%. Cependant, il importe de le compléter avec des tests de type KPSS pour prendre en compte une potentielle tendance déterministe. 
+
+```{r}
+kpss.test(as.numeric(xm_d1))
+```
+```{r}
+kpss.test(as.numeric(xm_d1), null = "Trend")
+
+```
+Au contraire de la série xm, les tests de KPSS ne permettent pas de rejeter la stationarité de la série xm_d1, ni en niveau ni autour d'une tendance. On peut donc considérer la série comme stationnaire. 
+
+
+# Question 3
+# ----------
+
+```{r}
+plot(xm)
+```
+
+
+```{r}
+plot(xm_d1)
+```
+
+
+
+###################################
+#### Partie 2 : modèles ARMA ######
+###################################
+
+# Question 4
+# ----------
+
+```{r}
+auto.arima(xm_ts, d=1, D=0, stepwise=FALSE, approximation=FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
