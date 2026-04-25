@@ -39,6 +39,6 @@ plot(window(xm.source, start = as.Date("2015-01-01")),
      ylab = "Indice (base 100 en 2021)",
      xlab = "")
 
-
+#petit test ici aussi
 
 
