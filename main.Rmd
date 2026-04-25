@@ -250,7 +250,7 @@ On ne peut donc pas blanchir les résidus, et on utilise donc le test KPSS, qui 
 
 
 
-# Question 2
+# Question 3
 # ----------
 
 ```{r}
@@ -273,12 +273,41 @@ par(mfrow = c(1,1))
 # Question 4
 # ----------
 
+CLAUDE dit : (à reprendre proprement)
+
 ```{r}
-auto.arima(xm_ts, d=1, D=0, stepwise=FALSE, approximation=FALSE)
+# Question 4 : ARMA(p,q) sur la série stationnaire xm_d1_d12
+# ------------------------------------------------------------
+
+# ACF et PACF pour identifier p et q
+par(mfrow = c(1,2))
+acf(as.numeric(xm_d1_d12), lag.max = 48)
+pacf(as.numeric(xm_d1_d12), lag.max = 48)
+par(mfrow = c(1,1))
+
+# Estimation des modèles candidats DIRECTEMENT sur xm_d1_d12
+# (pas sur xm_ts !)
+m1 <- arima(as.numeric(xm_d1_d12), order=c(0,0,1))
+m2 <- arima(as.numeric(xm_d1_d12), order=c(1,0,0))
+m3 <- arima(as.numeric(xm_d1_d12), order=c(1,0,1))
+m4 <- arima(as.numeric(xm_d1_d12), order=c(0,0,2))
+
+# Comparaison AIC
+AIC(m1); AIC(m2); AIC(m3); AIC(m4)
+
+# Validation du modèle retenu (résidus)
+Qtests(residuals(m1), 24, fitdf=length(m1$coef))
+
+# Question 5 : ARIMA(p,d,q)(P,D,Q)[12] sur la série brute
+# ---------------------------------------------------------
+
+# On réintègre d=1 et D=1 → on travaille sur xm_ts
+modele_complet <- Arima(xm_ts,
+                        order=c(p,1,q),        # d=1
+                        seasonal=c(P,1,Q))     # D=1
+summary(modele_complet)
+forecast(modele_complet, h=4)
 ```
-
-
-
 
 
 
