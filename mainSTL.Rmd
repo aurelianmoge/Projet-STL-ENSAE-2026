@@ -309,7 +309,7 @@ summary(modele_complet)
 forecast(modele_complet, h=4)
 ```
 
-
+je met un petit texte pour voir si mes pushs marchent
 
 
 
