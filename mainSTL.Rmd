@@ -1,0 +1,294 @@
+---
+title: "STL_LAHERRERE_MOGE"
+author: "Moge Aurélian"
+date: "2026-04-24"
+output: html_document
+---
+
+On installe les packages nécessaires
+
+```{r}
+library(zoo) #format de serie temporelle pratique et facile d'utilisation
+library(tseries) #diverses fonctions sur les séries temporelles
+library(tidyverse) #pour la manipulation des données
+library(forecast) #fonctions utiles pour les séries temporelles
+library(fUnitRoots) #pour le test ADF
+
+```
+
+###################################
+##### Partie 1 : les données ######
+###################################
+
+# Question 1
+# ----------
+
+On importe les données et on modifie légèrement la structure du fichier pour l'exploiter dans la suite du travail.
+
+```{r}
+df <- read.csv("valeurs_mensuelles_tabac.csv", sep=";")
+df <- df[-c(1,2,3), ] # on ne conserve que les lignes avec des valeurs renseignées
+df <- df[, c(1,2)]    # on ne conserve que les colonnes avec la date et l'indice
+df <- df %>%          # on renomme la colonne des indices pour la manipuler facilement
+  rename("Indice_tabac" 
+         = "Indice.CVS.CJO.de.la.production.industrielle..base.100.en.2021....Fabrication.de.denrées.alimentaires..de.boissons.et.de.produits.à.base.de.tabac..NAF.rév..2..niveau.A17..poste.C1.")
+
+
+summary(df)
+```
+
+
+On transforme le fichier pour l'utiliser comme une série temporelle. 
+
+```{r}
+# On convertit en série zoo la colonne des indices
+df$Indice_tabac <- as.numeric(gsub(",", ".", df$Indice_tabac))
+
+### Construction de la série temporelle
+
+# On enregistre la série dans un fichier xm.source (on ajoute "01" à la date pour simuler une date journalière)
+xm.source <- zoo(df$Indice_tabac, order.by = as.Date(paste0(df$Libellé, "-01")))
+
+# On définit la taille de la série temporelle (434 observations)
+T <- length(xm.source)
+
+# On enregistre ces observations dans un fichier à part, mais on enlève les 4 dernières observations, car on cherche à les prédire
+xm <- head(xm.source, T-4)
+```
+
+On regarde l'allure de la série avant transformation.
+
+```{r}
+plot(xm)
+```
+
+# Question 2
+# ----------
+
+On trouve dans la représentation de la série une tendance. Il semble également que la série ait une composante saisonnière, avec des potentielles fluctuations annuelles. 
+
+On vérifie cela en regardant la fonction d'autocorrélation de la série.
+
+```{r}
+acf(as.numeric(xm))
+```
+
+On voit beaucoup de pics, à peine décroissants et largement en dehors des bornes. La série semble donc non-stationnaire, ainsi qu'on pouvait le voir sur le graphique précédent.
+
+Pour le vérifier, on réalise un test ADF avec lag automatique.
+
+```{r}
+adf.test(as.numeric(xm))
+```
+Le test n'est clairement pas significatif au seuil de 5% et on ne peut donc pas rejeter l'hypothèse de non-stationnarité pour ce niveau de confiance
+
+De plus, la série semble avoir une tendance déterministe forte : c'est ce que suggère la régression linéaire suivante (les coefficients ne sont pas interprétables mais peuvent nous aider à mieux calibrer nos tests).
+
+```{r}
+dates <- as.yearmon(seq(from = 1990 + 0 / 12, to = 2025 + 9 / 12, by = 1 / 12))
+summary(lm(xm ~ dates))
+```
+
+La régression suggère l'existence d'une forte composante liée à la tendance déterministe : pour tester la stationnarité de la série, on utilise donc des tests KPSS.
+
+```{r}
+# On test la stationnarité autour d'une moyenne
+kpss.test(xm)
+```
+```{r}
+# On test la stationnarité autour d'une tendance
+kpss.test(xm, null = "Trend")
+```
+
+Dans ces tests de type KPSS, l'hypothèse nulle est la stationnarité. Or, elle est rejetée dans les deux cas, à la fois autour d'une moyenne et autour d'une tendance : la série n'est donc apparemment stationnaire ni en niveau ni autour d'une tendance. 
+
+On peut décomposer les deux effets - tendance et saisonnalité - comme suit.
+
+```{r}
+# On renseigne que la période de la série est 12 (on s'attend à un saisonnalité annuelle)
+xm_ts <- ts(coredata(xm), frequency = 12)
+
+# On affiche la décomposition STL de la série
+plot(stl(xm_ts, s.window = "periodic"))
+
+```
+Une première différenciation avec un lag égal à 1 semble pertinente. On vérifie en utilisant les fonctions nsdiffs et ndiffs, qui indiquent, en se fondant sur un test de Canova-Hansen, le nombre de différenciations nécessaires pour éliminer la composante saisonnière (nsdiffs) et la tendance de la série (ndiffs).
+
+```{r}
+nsdiffs(xm_ts)
+```
+```{r}
+ndiffs(xm_ts)
+```
+
+Il y a donc une tendance, à éliminer par une différenciation simple, mais aucune composante saisonnière telle qu'identifiée par un test de Canova-Hansen. 
+
+On crée donc une série différenciée une fois, i.e. une nouvelle colonne xm_d1 qui représente la série $Y_n = X_n - X_{n-1}$.
+
+```{r}
+xm_d1 <- diff(xm, lag = 1)  # on différencie avec un lag = 1
+xm_d1 <- na.omit(xm_d1)     # on supprime le NA créé par la différenciation
+```
+
+On représente cette série ci-dessous.
+
+```{r}
+
+plot(xm_d1)
+
+```
+
+On semble avoir éliminé l'essentiel de la composante tendancielle : hormis quelques pics exceptionnels, notamment en 2020, la série est caractérisée par des oscillations autour de 0. 
+
+On regarde l'ACF de la série qui en résulte.
+
+```{r}
+acf(as.numeric(xm_d1))
+```
+
+
+D'abord un test ADF
+```{r}
+adf.test(as.numeric(xm_d1))
+```
+
+On regarde, pour finir, si les coefficients des tests ADF sont interprétables. 
+
+```{r}
+
+# On construit la même fonction qu'en TP, pour réaliser le test de Ljung-Box sur les résidus
+Qtests <- function(series, k, fitdf = 0) {
+  pvals <- matrix(NA, nrow = k, ncol = 2)
+  colnames(pvals) <- c("lag", "pval")
+  for (l in 1:k) {
+    pvals[l, "lag"] <- l
+    if (l <= fitdf) {
+      pvals[l, "pval"] <- NA
+    } else {
+      pvals[l, "pval"] <- Box.test(series, lag = l,
+                                   type = "Ljung-Box",
+                                   fitdf = fitdf)$p.value
+    }
+  }
+  return(pvals)
+}
+
+# On construit aussi une fonction pour chercher automatiquement le plus petit nombre de lags pour lequel les résidus ne sont pas autocorrélés
+adf_valid <- function(series, kmax = 24, adftype = "c", lb_lag = 12) {
+  for (k in 0:kmax) {
+    adf <- adfTest(series, lags = k, type = adftype)
+    res <- adf@test$lm$residuals
+
+    lb <- Box.test(res,
+                   lag = lb_lag,
+                   type = "Ljung-Box",
+                   fitdf = length(adf@test$lm$coefficients))
+
+    if (lb$p.value > 0.05) {
+      message("ADF valide avec ", k, " retards (LB p-value = ",
+              round(lb$p.value, 4), ")")
+      return(adf)
+    }
+  }
+  warning("Aucun ordre de retard ne blanchit les résidus à court terme.")
+  return(adf)
+}
+```
+
+```{r}
+adf_d1 <- adf_valid(xm_d1, kmax = 24, adftype = "c")
+print(adf_d1)
+Qtests(adf_d1@test$lm$residuals, 36,
+       fitdf = length(adf_d1@test$lm$coefficients))
+```
+
+
+Le test ADF permet de rejeter l'hypothèse de non-stationnarité au seuil de 1%. Cependant, il importe de le compléter avec un test de PP puis avec des tests de type KPSS 
+
+On réalise d'abord un test de Philippe Peron(PP), qui rejette également l'hypothèse de non-stationnarité.
+```{r}
+pp.test(as.numeric(xm_d1))
+```
+
+
+Puis on réalise un test de type KPSS.
+
+```{r}
+kpss.test(xm_d1, null = "Level")
+```
+
+Au contraire de la série xm, les tests de KPSS ne permettent pas de rejeter la stationarité de la série xm_d1 On peut donc considérer la série comme stationnaire. 
+
+
+En somme, les trois tests (PP, ADF, KPSS) sont interprétables et donnent la stationnarité de la série différenciée une fois. 
+
+On en sort les tableaux suivants.
+
+```{r}
+# Tableau du test ADF
+lag_order <- as.numeric(adf_d1@test$parameter[1])
+result_adf <- data.frame(
+  "Type de test" = "ADF",
+  "Lag order" = lag_order,
+  "t-value" = as.numeric(adf_d1@test$statistic),
+  "P-value" = "< 0.01"
+)
+result_adf <- result_adf %>% 
+  rename("Type de test" = "Type.de.test",
+         "Lag order" = "Lag.order",
+         "t-value" = "t.value",
+         "P-value" = "P.value")
+
+# Tableau du test PP
+pp <- pp.test(xm_d1)
+result_pp <- data.frame(
+  `Type de test` = "PP",
+  `Lag order` = pp$parameter, 
+  't-value' = pp$statistic,
+  `P-value` = "<0.01"
+)
+result_pp <- result_pp %>% 
+  rename("Type de test" = "Type.de.test",
+         "Lag order" = "Lag.order",
+         "t-value" = "t.value",
+         "P-value" = "P.value")
+
+# Tableau du test KPSS
+kpss <- kpss.test(xm_d1, null = "Level")
+result_kpss <- data.frame(
+  "Type de test" = "KPSS",
+  "Lag order" = kpss$parameter,
+  "KPSS Level" = kpss$statistic,
+  "p-value" = ">0.1"
+)
+result_kpss <- result_kpss %>% 
+  rename("Type de test" = "Type.de.test",
+         "Lag order" = "Lag.order",
+         "KPSS Level" = "KPSS.Level",
+         "P-value" = "p.value")
+
+```
+
+On exporte les tableaux pour le rapport.
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+tex_adf <- kable(result_adf, format = "latex", booktabs = TRUE,
+      caption = "Résultat du test ADF") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_adf, "adf_table.tex")
+
+tex_pp <- kable(result_pp, format = "latex", booktabs = TRUE,
+      caption = "Résultat du test PP") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_pp, "pp_table.tex")
+
+tex_kpss <- kable(result_kpss, format = "latex", booktabs = TRUE,
+      caption = "Résultat du test KPSS") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_kpss, "kpss_table.tex")
+
+```
+

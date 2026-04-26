@@ -214,13 +214,83 @@ pp.test(as.numeric(xm_d1))
 Puis on réalise un test de type KPSS.
 
 ```{r}
-kpss.test(as.numeric(xm_d1))
+kpss.test(xm_d1, null = "Level")
 ```
 
 Au contraire de la série xm, les tests de KPSS ne permettent pas de rejeter la stationarité de la série xm_d1 On peut donc considérer la série comme stationnaire. 
 
 
 En somme, les trois tests (PP, ADF, KPSS) sont interprétables et donnent la stationnarité de la série différenciée une fois. 
+
+On en sort les tableaux suivants.
+
+```{r}
+# Tableau du test ADF
+lag_order <- as.numeric(adf_d1@test$parameter[1])
+result_adf <- data.frame(
+  "Type de test" = "ADF",
+  "Lag order" = lag_order,
+  "t-value" = as.numeric(adf_d1@test$statistic),
+  "P-value" = "< 0.01"
+)
+result_adf <- result_adf %>% 
+  rename("Type de test" = "Type.de.test",
+         "Lag order" = "Lag.order",
+         "t-value" = "t.value",
+         "P-value" = "P.value")
+
+# Tableau du test PP
+pp <- pp.test(xm_d1)
+result_pp <- data.frame(
+  `Type de test` = "PP",
+  `Lag order` = pp$parameter, 
+  't-value' = pp$statistic,
+  `P-value` = "<0.01"
+)
+result_pp <- result_pp %>% 
+  rename("Type de test" = "Type.de.test",
+         "Lag order" = "Lag.order",
+         "t-value" = "t.value",
+         "P-value" = "P.value")
+
+# Tableau du test KPSS
+kpss <- kpss.test(xm_d1, null = "Level")
+result_kpss <- data.frame(
+  "Type de test" = "KPSS",
+  "Lag order" = kpss$parameter,
+  "KPSS Level" = kpss$statistic,
+  "p-value" = ">0.1"
+)
+result_kpss <- result_kpss %>% 
+  rename("Type de test" = "Type.de.test",
+         "Lag order" = "Lag.order",
+         "KPSS Level" = "KPSS.Level",
+         "P-value" = "p.value")
+
+```
+
+On exporte les tableaux pour le rapport.
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+tex_adf <- kable(result_adf, format = "latex", booktabs = TRUE,
+      caption = "Résultat du test ADF") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_adf, "adf_table.tex")
+
+tex_pp <- kable(result_pp, format = "latex", booktabs = TRUE,
+      caption = "Résultat du test PP") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_pp, "pp_table.tex")
+
+tex_kpss <- kable(result_kpss, format = "latex", booktabs = TRUE,
+      caption = "Résultat du test KPSS") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_kpss, "kpss_table.tex")
+
+```
 
 
 # Question 3
