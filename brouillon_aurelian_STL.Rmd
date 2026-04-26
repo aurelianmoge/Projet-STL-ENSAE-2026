@@ -1,0 +1,440 @@
+---
+title: "STL_LAHERRERE_MOGE"
+author: "Moge Aurélian"
+date: "2026-04-24"
+output: html_document
+---
+
+On installe les packages nécessaires
+
+```{r}
+library(zoo) #format de serie temporelle pratique et facile d'utilisation
+library(tseries) #diverses fonctions sur les séries temporelles
+library(tidyverse) #pour la manipulation des données
+library(forecast) #fonctions utiles pour les séries temporelles
+library(fUnitRoots) #pour le test ADF
+
+```
+
+###################################
+##### Partie 1 : les données ######
+###################################
+
+# Question 1
+# ----------
+
+On importe les données et on modifie légèrement la structure du fichier pour l'exploiter dans la suite du travail.
+
+```{r}
+df <- read.csv("valeurs_mensuelles_pharma.csv", sep=";")
+df <- df[-c(1,2,3), ] # on ne conserve que les lignes avec des valeurs renseignées
+df <- df[, c(1,2)]    # on ne conserve que les colonnes avec la date et l'indice
+df <- df %>%          # on renomme la colonne des indices pour la manipuler facilement
+  rename("Indice_pharma" 
+         = "Indice.brut.de.la.production.industrielle..base.100.en.2021....Industrie.pharmaceutique..NAF.rév..2..niveau.division..poste.21.")
+
+
+summary(df)
+```
+
+
+```{r}
+#### Papier
+
+df2 <- read.csv("valeurs_mensuelles_tabac.csv", sep=";")
+df2 <- df2[-c(1,2,3), ] # on ne conserve que les lignes avec des valeurs renseignées
+df2 <- df2[, c(1,2)]    # on ne conserve que les colonnes avec la date et l'indice
+df2 <- df2 %>%          # on renomme la colonne des indices pour la manipuler facilement
+  rename("Indice_tabac" 
+         = "Indice.CVS.CJO.de.la.production.industrielle..base.100.en.2021....Fabrication.de.denrées.alimentaires..de.boissons.et.de.produits.à.base.de.tabac..NAF.rév..2..niveau.A17..poste.C1.")
+
+
+summary(df2)
+```
+
+
+
+
+
+```{r}
+# On convertit en série zoo la colonne des indices
+df2$Indice_tabac <- as.numeric(gsub(",", ".", df2$Indice_tabac))
+
+### Construction de la série temporelle
+
+# On enregistre la série dans un fichier xm.source (on ajoute "01" à la date pour simuler une date journalière)
+xm2.source <- zoo(df2$Indice_tabac, order.by = as.Date(paste0(df2$Libellé, "-01")))
+
+# On définit la taille de la série temporelle (434 observations)
+T2 <- length(xm2.source)
+
+# On enregistre ces observations dans un fichier à part, mais on enlève les 4 dernières observations, car on cherche à les prédire
+xm2 <- head(xm2.source, T2-4)
+
+xm2_ts <- ts(coredata(xm2), frequency = 12)
+
+xm2_d1 <- diff(xm2, lag = 1)  # on différencie avec un lag = 1
+xm2_d1 <- na.omit(xm2_d1)     # on supprime le NA créé par la différenciation
+
+acf(as.numeric(xm2_d1))
+
+xm2_d1_d12 <- diff(xm2_d1, lag = 12)  # on différencie avec un lag = 1
+xm2_d1_d12 <- na.omit(xm2_d1_d12)     # on supprime le NA créé par la différenciation
+
+acf(as.numeric(xm2_d1_d12))
+
+xm2_log_d1_d12 <- log(xm2_d1_d12)
+xm2_log_d1_d12 <- na.omit(xm2_log_d1_d12)     # on supprime le NA créé par la différenciation
+
+
+acf(as.numeric(xm2_log_d1_d12))
+
+
+
+
+xm2_log <- log(xm2)
+xm2_log_d1 <- diff(xm2_log, lag = 1)  # on différencie avec un lag = 1
+xm2_log_d1 <- na.omit(xm2_log_d1)     # on supprime le NA créé par la différenciation
+
+acf(as.numeric(xm2_log_d1))
+
+xm2_log_d1_d12 <- diff(xm2_log_d1, lag = 12)  # on différencie avec un lag = 1
+xm2_log_d1_d12 <- na.omit(xm2_log_d1_d12)     # on supprime le NA créé par la différenciation
+
+acf(as.numeric(xm2_log_d1_d12))
+
+
+plot(xm2_d1)
+
+
+
+```
+
+
+
+
+
+On transforme le fichier pour l'utiliser comme une série temporelle. 
+
+```{r}
+# On convertit en série zoo la colonne des indices
+df$Indice_pharma <- as.numeric(gsub(",", ".", df$Indice_pharma))
+
+### Construction de la série temporelle
+
+# On enregistre la série dans un fichier xm.source (on ajoute "01" à la date pour simuler une date journalière)
+xm.source <- zoo(df$Indice_pharma, order.by = as.Date(paste0(df$Libellé, "-01")))
+
+# On définit la taille de la série temporelle (434 observations)
+T <- length(xm.source)
+
+# On enregistre ces observations dans un fichier à part, mais on enlève les 4 dernières observations, car on cherche à les prédire
+xm <- head(xm.source, T-4)
+```
+
+On regarde l'allure de la série avant transformation.
+
+```{r}
+plot(xm)
+```
+
+# Question 2
+# ----------
+
+On trouve dans la représentation de la série une tendance. Il semble également que la série ait une composante saisonnière, avec des potentielles fluctuations annuelles. 
+
+On vérifie cela en regardant la fonction d'autocorrélation de la série.
+
+```{r}
+acf(as.numeric(xm))
+```
+
+On voit beaucoup de pics, à peine décroissants et largement en dehors des bornes. La série semble donc non-stationnaire, ainsi qu'on pouvait le voir sur le graphique précédent.
+
+Pour le vérifier, on réalise un test ADF avec lag automatique.
+
+```{r}
+adf.test(as.numeric(xm))
+```
+Le test n'est pas significatif au seuil de 5% et on ne peut donc pas rejeter l'hypothèse de non-stationnarité pour ce niveau de confiance
+
+De plus, la série semble avoir une tendance déterministe forte : c'est ce que suggère la régression linéaire suivante (les coefficients ne sont pas interprétables mais peuvent nous aider à mieux calibrer nos tests).
+
+```{r}
+dates <- as.yearmon(seq(from = 1990 + 0 / 12, to = 2025 + 9 / 12, by = 1 / 12))
+summary(lm(xm ~ dates))
+```
+
+La régression suggère l'existence d'une forte composante liée à la tendance déterministe : pour tester la stationnarité de la série, on utilise donc des tests KPSS.
+
+```{r}
+# On test la stationnarité autour d'une moyenne
+kpss.test(xm)
+```
+```{r}
+# On test la stationnarité autour d'une tendance
+kpss.test(xm, null = "Trend")
+```
+
+Dans ces tests de type KPSS, l'hypothèse nulle est la stationnarité. Or, elle est rejetée dans les deux cas, à la fois autour d'une moyenne et autour d'une tendance : la série n'est donc apparemment stationnaire ni en niveau ni autour d'une tendance. 
+
+On peut décomposer les deux effets - tendance et saisonnalité - comme suit.
+
+```{r}
+# On renseigne que la période de la série est 12
+xm_ts <- ts(coredata(xm), frequency = 12)
+
+# On affiche la décomposition STL de la série
+plot(stl(xm_ts, s.window = "periodic"))
+
+```
+Une première différenciation avec un lag égal à 1 semble pertinente. On vérifie en utilisant les fonctions nsdiffs et ndiffs, qui indiquent, en se fondant sur un test de Canova-Hansen, le nombre de différenciations nécessaires pour éliminer la composante saisonnière (nsdiffs) et la tendance de la série (ndiffs).
+
+```{r}
+nsdiffs(xm_ts)
+```
+```{r}
+ndiffs(xm_ts)
+```
+
+Il y a donc une tendance, à éliminer par une différenciation simple, et une composante saisonnière telle qu'identifiée par un test de Canova-Hansen. 
+
+On crée donc une série différenciée une fois, i.e. une nouvelle colonne xm_d1 qui représente la série $Y_n = X_n - X_{n-1}$.
+
+```{r}
+xm_d1 <- diff(xm, lag = 1)  # on différencie avec un lag = 1
+xm_d1 <- na.omit(xm_d1)     # on supprime le NA créé par la différenciation
+```
+
+On représente cette série ci-dessous.
+
+```{r}
+
+plot(xm_d1)
+
+```
+
+On semble avoir éliminé l'essentiel de la composante tendancielle : hormis quelques pics exceptionnels, notamment en 2020, la série est caractérisée par des oscillations autour de 0. Par contre, le graphique montre une hétéroscedasticité qu'il nous faut corriger, en différenciant avec un lag 12 (soit une différenciation saisonnière.)
+
+```{r}
+
+xm_d1_d12 <- diff(xm_d1, lag = 12)
+xm_d1_d12 <- na.omit(xm_d1_d12)
+
+```
+
+```{r}
+plot(xm_d1_d12)
+```
+
+```{r}
+acf(as.numeric(xm_d1_d12), lag.max = 48)
+```
+```{r}
+
+xm_log_d1_d12 <- log(xm_d1_d12)
+xm_log_d1_d12 <- na.omit(xm_log_d1_d12)
+
+acf(as.numeric(xm_log_d1_d12))
+plot(xm_log_d1_d12)
+
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+xm_log<- log(xm)
+
+xm_log_ts <- ts(coredata(xm_log), frequency = 24)
+plot(stl(xm_log_ts, s.window = "periodic"))
+
+ndiffs(xm_log)
+
+nsdiffs(xm_log_ts)
+
+xm_log_d1 <- diff(xm_log, lag = 1)
+xm_log_d1_d12 <- diff(xm_log_d1, lag = 12)
+
+pacf(as.numeric(xm_log_d1_d12))
+
+```
+
+
+
+
+D'abord un test ADF
+```{r}
+adf.test(as.numeric(xm_d1_d12))
+```
+Le test ADF permet de rejeter l'hypothèse de non-stationnarité au seuil de 1%. Cependant, il importe de le compléter avec des tests de type KPSS pour prendre en compte une potentielle tendance déterministe. 
+
+```{r}
+kpss.test(as.numeric(xm_d1_d12))
+```
+```{r}
+kpss.test(as.numeric(xm_d1_d12), null = "Trend")
+
+```
+
+Au contraire de la série xm, les tests de KPSS ne permettent pas de rejeter la stationarité de la série xm_d1_d12, ni en niveau ni autour d'une tendance. On peut donc considérer la série comme stationnaire. 
+
+
+On regarde, pour finir, si les coefficients des tests ADF sont interprétables. 
+
+
+```{r}
+
+# On construit la même fonction qu'en TP, pour réaliser le test de Ljung-Box sur les résidus
+Qtests <- function(series, k, fitdf = 0) {
+  pvals <- matrix(NA, nrow = k, ncol = 2)
+  colnames(pvals) <- c("lag", "pval")
+  for (l in 1:k) {
+    pvals[l, "lag"] <- l
+    if (l <= fitdf) {
+      pvals[l, "pval"] <- NA
+    } else {
+      pvals[l, "pval"] <- Box.test(series, lag = l,
+                                   type = "Ljung-Box",
+                                   fitdf = fitdf)$p.value
+    }
+  }
+  return(pvals)
+}
+
+# On construit aussi une fonction pour chercher automatiquement le plus petit nombre de lags pour lequel les résidus ne sont pas autocorrélés
+adfTest_valid <- function(series, kmax, adftype) {
+  k <- 0
+  is_white_noise <- FALSE
+  while (is_white_noise == FALSE && k <= kmax) {
+    cat(paste0("ADF with ", k, " lags: residuals OK? "))
+    adf <- adfTest(series, lags = k, type = adftype)
+    pvals <- Qtests(adf@test$lm$residuals, 36,
+                    fitdf = length(adf@test$lm$coefficients))[, 2]
+    if (sum(pvals < 0.05, na.rm = TRUE) == 0) {
+      is_white_noise <- TRUE
+      cat("OK\n")
+    } else {
+      cat("nope\n")
+      k <- k + 1
+    }
+  }
+  if (is_white_noise == FALSE) {
+    warning("Aucun lag <= kmax ne permet d'obtenir des résidus décorrélés.")
+  }
+  return(adf)
+}
+
+```
+
+```{r}
+adf_d1_d12 <- adfTest_valid(xm_d1_d12, kmax = 24, adftype = "c")
+print(adf_d1_d12)
+
+```
+
+```{r}
+Qtests(adf_d1_d12@test$lm$residuals, 36,
+       fitdf = length(adf_d1_d12@test$lm$coefficients))
+```
+
+Au total, aucune différenciation ne permet de conclure à la non-autocorrélation des résidus du test ADF, ce qui le rend théoriquement non-interprétable. On s'en tient donc au test KPSS, qui intègre la saisonnalité, manifestement forte dans notre exemple. 
+
+On regarde néanmoins quelle est la strcture des résidus du test ADF, pour comprendre pourquoi ils sont autocorrélés. 
+
+```{r}
+adf_diagnostic <- adfTest(xm_d1_d12, lags = 5, type = "c")
+
+par(mfrow = c(2,1))
+plot(adf_diagnostic@test$lm$residuals, type="l",
+     main="Résidus ADF lags=5 : hétéroscédasticité")
+acf(adf_diagnostic@test$lm$residuals, lag.max = 48,
+    main="ACF résidus ADF lags=5 : pic résiduel au lag 12")
+par(mfrow = c(1,1))
+
+```
+
+On remarque deux choses. D'une part, la série est hétéroscedastique : la variance des résidus croît dans le temps. D'autre part, il reste une autocorrélation résiduelle au lag 12 : la série a une double-saisonnalité (annuelle et infra-annuelle) que la différenciation ne suffit pas à éliminer. 
+
+On ne peut donc pas blanchir les résidus, et on utilise donc le test KPSS, qui ne suppose pas de résidus bruit blanc, et qui est robuste à l'hétéroscedasticité. 
+
+
+
+# Question 3
+# ----------
+
+```{r}
+par(mfrow = c(3,1))
+plot(xm,
+     main="Série brute : tendance haussière, saisonnalité et variance croissante")
+plot(xm_d1,
+     main="Après diff(lag=1) : tendance retirée, saisonnalité résiduelle au lag 12")
+plot(xm_d1_d12,
+     main="Après diff(lag=1) + diff(lag=12) : série stationnaire retenue (d=1, D=1)")
+par(mfrow = c(1,1))
+```
+
+
+
+###################################
+#### Partie 2 : modèles ARMA ######
+###################################
+
+# Question 4
+# ----------
+
+CLAUDE dit : (à reprendre proprement)
+
+```{r}
+# Question 4 : ARMA(p,q) sur la série stationnaire xm_d1_d12
+# ------------------------------------------------------------
+
+# ACF et PACF pour identifier p et q
+par(mfrow = c(1,2))
+acf(as.numeric(xm_d1_d12), lag.max = 48)
+pacf(as.numeric(xm_d1_d12), lag.max = 48)
+par(mfrow = c(1,1))
+
+# Estimation des modèles candidats DIRECTEMENT sur xm_d1_d12
+# (pas sur xm_ts !)
+m1 <- arima(as.numeric(xm_d1_d12), order=c(0,0,1))
+m2 <- arima(as.numeric(xm_d1_d12), order=c(1,0,0))
+m3 <- arima(as.numeric(xm_d1_d12), order=c(1,0,1))
+m4 <- arima(as.numeric(xm_d1_d12), order=c(0,0,2))
+
+# Comparaison AIC
+AIC(m1); AIC(m2); AIC(m3); AIC(m4)
+
+# Validation du modèle retenu (résidus)
+Qtests(residuals(m1), 24, fitdf=length(m1$coef))
+
+# Question 5 : ARIMA(p,d,q)(P,D,Q)[12] sur la série brute
+# ---------------------------------------------------------
+
+# On réintègre d=1 et D=1 → on travaille sur xm_ts
+modele_complet <- Arima(xm_ts,
+                        order=c(p,1,q),        # d=1
+                        seasonal=c(P,1,Q))     # D=1
+summary(modele_complet)
+forecast(modele_complet, h=4)
+```
+
+je met un petit texte pour voir si mes pushs marchent
+
+
+
+
+
+
+
+
+
