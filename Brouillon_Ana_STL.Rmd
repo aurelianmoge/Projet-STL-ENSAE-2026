@@ -1,0 +1,134 @@
+---
+title: "brouillon2_Ana"
+output: html_document
+date: "2026-04-26"
+---
+
+```{r}
+library(zoo) #format de serie temporelle pratique et facile d'utilisation
+library(tseries) #diverses fonctions sur les séries temporelles
+library(tidyverse) #pour la manipulation des données
+library(forecast) #fonctions utiles pour les séries temporelles
+library(fUnitRoots) #pour le test ADF
+
+df <- read.csv("valeurs_mensuelles_tabac.csv", sep=";")
+df <- df[-c(1,2,3), ] # on ne conserve que les lignes avec des valeurs renseignées
+df <- df[, c(1,2)]    # on ne conserve que les colonnes avec la date et l'indice
+df <- df %>%          # on renomme la colonne des indices pour la manipuler facilement
+  rename("Indice_tabac" 
+         = "Indice.CVS.CJO.de.la.production.industrielle..base.100.en.2021....Fabrication.de.denrées.alimentaires..de.boissons.et.de.produits.à.base.de.tabac..NAF.rév..2..niveau.A17..poste.C1.")
+
+
+summary(df)
+
+# On convertit en série zoo la colonne des indices
+df$Indice_tabac <- as.numeric(gsub(",", ".", df$Indice_tabac))
+
+### Construction de la série temporelle
+
+# On enregistre la série dans un fichier xm.source (on ajoute "01" à la date pour simuler une date journalière)
+xm.source <- zoo(df$Indice_tabac, order.by = as.Date(paste0(df$Libellé, "-01")))
+
+# On définit la taille de la série temporelle (434 observations)
+T <- length(xm.source)
+
+# On enregistre ces observations dans un fichier à part, mais on enlève les 4 dernières observations, car on cherche à les prédire
+xm <- head(xm.source, T-4)
+
+xm_d1 <- diff(xm, lag = 1)  # on différencie avec un lag = 1
+xm_d1 <- na.omit(xm_d1)     # on supprime le NA créé par la différenciation
+
+
+```
+
+## Partie 2
+
+### Question 4
+
+Là on va tracer les ACF et PCF de la série xm_d1 pour trouver les ordres maximum p\* et q\* vraisemblables :
+
+```{r}
+par(mfrow = c(1,2))
+acf(as.numeric(xm_d1), lag.max = 24, main = "ACF de xm_d1")
+pacf(as.numeric(xm_d1), lag.max = 24, main = "PACF de xm_d1")
+par(mfrow = c(1,1))
+```
+
+L’ACF est significative à l’ordre 1, tous les autres lags sont dans les bornes (sauf peut-être lag 24 légèrement) on choisira donc q*=1. Pour la PACF, de nombreux lags sont significatifs (lags 1 à \~10-11, tous négatifs), on choisi p*=4. On constate que une ACF qui coupe clairement à 1 et une PACF qui décroit avec des oscillations sugère un modèle MA(1).
+
+On va utiliser les critères d'informations pour nous aider à choisir un modèle, avec qmax = 1 et pmax = 4
+
+```{r}
+pmax <- 4
+qmax <- 1 
+
+mat <- matrix(NA, nrow = pmax+1, ncol = qmax+1)
+rownames(mat) <- paste0("p=", 0:pmax)
+colnames(mat) <- paste0("q=", 0:qmax)
+AICs <- mat
+BICs <- mat
+
+pqs <- expand.grid(0:pmax, 0:qmax)
+for (row in 1:nrow(pqs)) {
+  p <- pqs[row, 1]
+  q <- pqs[row, 2]
+  estim <- try(arima(as.numeric(xm_d1), order = c(p,0,q), include.mean = FALSE))
+  AICs[p+1, q+1] <- if (class(estim) == "try-error") NA else estim$aic
+  BICs[p+1, q+1] <- if (class(estim) == "try-error") NA else BIC(estim)
+}
+
+AICs
+AICs == min(AICs, na.rm = TRUE)  # modèle minimisant l'AIC
+
+BICs
+BICs == min(BICs, na.rm = TRUE)  # modèle minimisant le BIC
+```
+
+Les deux critères AIC et BIC désignent le même modèle : ARMA(1,1) sur xm_d1, soit un ARIMA(1,1,1) sur la série brute.
+
+On estime le modèle ARMA(1,1) (equivalent à un ARIMA (1,0,1)) sur la série différenciée (ie modèle ARIMA (1,1,1) sur la série brute) et on vérifie les coéfficients.
+
+```{r}
+modele <- arima(as.numeric(xm_d1), order = c(1,0,1), include.mean = FALSE)
+summary(modele)
+```
+
+Le coefficient AR(1) est significatif (le rapport entre le coefficient estimé et son erreur standard est plus grand en valeur absolue que 1.96). En effet on a : 0.2749 / 0.0740 = 3.71 \> 1.96 Le coefficient MA(1) est significatif (le rapport entre le coefficient estimé et son erreur standard est plus grand en valeur absolue que 1.96). En effet on a -0.7823 / 0.0486 = -16.1 \> 1.96 en valeur absolue.
+
+Maintenant on effectue un test d'autocorrélation sur les résidus. On utilise la fonction Qtest. On va jusqu'au lag 24 par convention sur des données annuelles.
+
+```{r}
+# Je recode Qtest dans le brouillon
+Qtests <- function(series, k, fitdf = 0) {
+  pvals <- matrix(NA, nrow = k, ncol = 2)
+  colnames(pvals) <- c("lag", "pval")
+  for (l in 1:k) {
+    pvals[l, "lag"] <- l
+    if (l <= fitdf) {
+      pvals[l, "pval"] <- NA
+    } else {
+      pvals[l, "pval"] <- Box.test(series, lag = l,
+                                   type = "Ljung-Box",
+                                   fitdf = fitdf)$p.value
+    }
+  }
+  return(pvals)
+}
+
+# On teste les résidus du modèle ARMA(1,1)
+Qtests(modele$residuals, 24, fitdf = 2)
+```
+
+Lags 1 et 2 : NA, normal car fitdf = 2 (2 coefficients estimés) Lags 3 à 24 : toutes les p-values sont largement \> 0.05
+
+L'absence d'autocorrélation n'est jamais rejetée. Le modèle ARMA(1,1) est donc valide.
+
+### Question 5
+
+On le mettra dans le rapport ça mais je met là pour l'instant.
+
+Le modèle ARIMA(1,1,1) pour la série brute $X_t$ s'écrit :
+
+$$(1 - 0.2749B)(1-B)X_t = (1 - 0.7823B)\varepsilon_t$$
+
+avec $\varepsilon_t \sim WN(0, 2.153)$.
