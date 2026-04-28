@@ -123,6 +123,49 @@ Lags 1 et 2 : NA, normal car fitdf = 2 (2 coefficients estimés) Lags 3 à 24 : 
 
 L'absence d'autocorrélation n'est jamais rejetée. Le modèle ARMA(1,1) est donc valide.
 
+Récupérer les tableaux pour le rapport :
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+# Tableau AIC
+aic_df <- as.data.frame(AICs)
+tex_aic <- kable(aic_df, format = "latex", booktabs = TRUE,
+      caption = "AIC des modèles ARMA(p,q)") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_aic, "aic_table.tex")
+
+# Tableau BIC
+bic_df <- as.data.frame(BICs)
+tex_bic <- kable(bic_df, format = "latex", booktabs = TRUE,
+      caption = "BIC des modèles ARMA(p,q)") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_bic, "bic_table.tex")
+
+# Tableau des coefficients
+coef_df <- data.frame(
+  Coefficient = c("AR(1)", "MA(1)"),
+  Estimate = c(0.2749, -0.7823),
+  Std.Error = c(0.0740, 0.0486),
+  t.value = c(0.2749/0.0740, -0.7823/0.0486)
+)
+tex_coef <- kable(coef_df, format = "latex", booktabs = TRUE,
+      caption = "Coefficients estimés du modèle ARMA(1,1)",
+      digits = 4) %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_coef, "coef_table.tex")
+
+# Tableau Qtests
+qtest_df <- as.data.frame(Qtests(modele$residuals, 24, fitdf = 2))
+tex_qtest <- kable(qtest_df, format = "latex", booktabs = TRUE,
+      caption = "Test de Ljung-Box sur les résidus du modèle ARMA(1,1)",
+      digits = 4) %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_qtest, "qtest_table.tex")
+```
+
+
 ### Question 5
 
 On le mettra dans le rapport ça mais je met là pour l'instant.
