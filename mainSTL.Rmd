@@ -109,8 +109,20 @@ On peut décomposer les deux effets - tendance et saisonnalité - comme suit.
 xm_ts <- ts(coredata(xm), frequency = 12)
 
 # On affiche la décomposition STL de la série
-plot(stl(xm_ts, s.window = "periodic"))
+decompo_stl <- plot(stl(xm_ts, s.window = "periodic"))
 
+# On l'exporte pour le rapport
+tex_stl <- kable(decompo_stl, format = "latex", booktabs = TRUE,
+      caption = "Décomposition STL de la série") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_stl, "tex_stl.tex")
+
+# On fait de même avec la décomposition additive (si besoin)
+decompo_add <- plot(decompose(xm_ts))
+tex_add <- kable(decompo_add, format = "latex", booktabs=TRUE,
+                 caption = "Décomposition additive de la série") %>% 
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_add, "tex_add.tex")
 ```
 Une première différenciation avec un lag égal à 1 semble pertinente. On vérifie en utilisant les fonctions nsdiffs et ndiffs, qui indiquent, en se fondant sur un test de Canova-Hansen, le nombre de différenciations nécessaires pour éliminer la composante saisonnière (nsdiffs) et la tendance de la série (ndiffs).
 
@@ -291,4 +303,199 @@ tex_kpss <- kable(result_kpss, format = "latex", booktabs = TRUE,
 writeLines(tex_kpss, "kpss_table.tex")
 
 ```
+
+
+# Question 3
+# ----------
+
+```{r}
+plot(xm)
+plot(xm_d1)
+```
+
+
+
+
+
+
+
+###################################
+##### Partie 2 : modèles ARMA #####
+###################################
+
+### Question 4
+
+Là on va tracer les ACF et PCF de la série xm_d1 pour trouver les ordres maximum p\* et q\* vraisemblables :
+
+```{r}
+par(mfrow = c(1,2))
+acf(as.numeric(xm_d1), lag.max = 24, main = "ACF de xm_d1")
+pacf(as.numeric(xm_d1), lag.max = 24, main = "PACF de xm_d1")
+par(mfrow = c(1,1))
+```
+
+L’ACF est significative à l’ordre 1, tous les autres lags sont dans les bornes (sauf peut-être lag 24 légèrement) on choisira donc q*=1. Pour la PACF, de nombreux lags sont significatifs (lags 1 à \~10-11, tous négatifs), on choisi p*=4. On constate que une ACF qui coupe clairement à 1 et une PACF qui décroit avec des oscillations sugère un modèle MA(1).
+
+On va utiliser les critères d'informations pour nous aider à choisir un modèle, avec qmax = 1 et pmax = 4
+
+```{r}
+pmax <- 5
+qmax <- 5
+
+mat <- matrix(NA, nrow = pmax+1, ncol = qmax+1)
+rownames(mat) <- paste0("p=", 0:pmax)
+colnames(mat) <- paste0("q=", 0:qmax)
+AICs <- mat
+BICs <- mat
+
+pqs <- expand.grid(0:pmax, 0:qmax)
+for (row in 1:nrow(pqs)) {
+  p <- pqs[row, 1]
+  q <- pqs[row, 2]
+  estim <- try(arima(as.numeric(xm_d1), order = c(p,0,q), include.mean = FALSE))
+  AICs[p+1, q+1] <- if (class(estim) == "try-error") NA else estim$aic
+  BICs[p+1, q+1] <- if (class(estim) == "try-error") NA else BIC(estim)
+}
+
+AICs
+AICs == min(AICs, na.rm = TRUE)  # modèle minimisant l'AIC
+
+BICs
+BICs == min(BICs, na.rm = TRUE)  # modèle minimisant le BIC
+```
+
+Les deux critères AIC et BIC désignent le même modèle : ARMA(1,1) sur xm_d1, soit un ARIMA(1,1,1) sur la série brute.
+
+On estime le modèle ARMA(1,1) (equivalent à un ARIMA (1,0,1)) sur la série différenciée (ie modèle ARIMA (1,1,1) sur la série brute) et on vérifie les coéfficients.
+
+```{r}
+modele <- arima(as.numeric(xm_d1), order = c(1,0,1), include.mean = FALSE)
+summary(modele)
+```
+
+Le coefficient AR(1) est significatif (le rapport entre le coefficient estimé et son erreur standard est aplus grand en valeur absolue que 1.96). En effet on a : 0.2749 / 0.0740 = 3.71 \> 1.96 Le coefficient MA(1) est significatif (le rapport entre le coefficient estimé et son erreur standard est plus grand en valeur absolue que 1.96). En effet on a -0.7823 / 0.0486 = -16.1 \> 1.96 en valeur absolue.
+
+Maintenant on effectue un test d'autocorrélation sur les résidus. On utilise la fonction Qtest. On va jusqu'au lag 24 par convention sur des données annuelles.
+
+```{r}
+# Je recode Qtest dans le brouillon
+Qtests <- function(series, k, fitdf = 0) {
+  pvals <- matrix(NA, nrow = k, ncol = 2)
+  colnames(pvals) <- c("lag", "pval")
+  for (l in 1:k) {
+    pvals[l, "lag"] <- l
+    if (l <= fitdf) {
+      pvals[l, "pval"] <- NA
+    } else {
+      pvals[l, "pval"] <- Box.test(series, lag = l,
+                                   type = "Ljung-Box",
+                                   fitdf = fitdf)$p.value
+    }
+  }
+  return(pvals)
+}
+
+# On teste les résidus du modèle ARMA(1,1)
+Qtests(modele$residuals, 24, fitdf = 2)
+```
+
+Lags 1 et 2 : NA, normal car fitdf = 2 (2 coefficients estimés) Lags 3 à 24 : toutes les p-values sont largement \> 0.05
+
+L'absence d'autocorrélation n'est jamais rejetée. Le modèle ARMA(1,1) est donc valide.
+
+Récupérer les tableaux pour le rapport :
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+# Tableau AIC
+aic_df <- as.data.frame(AICs)
+tex_aic <- kable(aic_df, format = "latex", booktabs = TRUE,
+      caption = "AIC des modèles ARMA(p,q)") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_aic, "aic_table.tex")
+
+# Tableau BIC
+bic_df <- as.data.frame(BICs)
+tex_bic <- kable(bic_df, format = "latex", booktabs = TRUE,
+      caption = "BIC des modèles ARMA(p,q)") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_bic, "bic_table.tex")
+
+# Tableau des coefficients
+coef_df <- data.frame(
+  Coefficient = c("AR(1)", "MA(1)"),
+  Estimate = c(0.2749, -0.7823),
+  Std.Error = c(0.0740, 0.0486),
+  t.value = c(0.2749/0.0740, -0.7823/0.0486)
+)
+tex_coef <- kable(coef_df, format = "latex", booktabs = TRUE,
+      caption = "Coefficients estimés du modèle ARMA(1,1)",
+      digits = 4) %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_coef, "coef_table.tex")
+
+# Tableau Qtests
+qtest_df <- as.data.frame(Qtests(modele$residuals, 24, fitdf = 2))
+tex_qtest <- kable(qtest_df, format = "latex", booktabs = TRUE,
+      caption = "Test de Ljung-Box sur les résidus du modèle ARMA(1,1)",
+      digits = 4) %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_qtest, "qtest_table.tex")
+```
+
+On vérifie la blancheur des résidus par un QQ-plot
+
+```{r}
+# On récupère les résidus
+residuals_modele <- resid(modele)
+
+# On les plot
+qqnorm(residuals_modele, main = "Q-Q Plot of Residuals from Linear Regression")
+qqline(residuals_modele, col = "red")
+```
+
+
+
+```{r}
+# Test de normalité (rejetée)
+jarque.bera.test(residuals_modele) 
+
+# Histogramme pour voir quand même la tête de la distribution
+hist(residuals_modele,
+     probability = TRUE,
+     col = "lightgray",
+     border = "white",
+     main = "Histogramme et densité empirique des résidus",
+     xlab = "Valeurs")
+lines(density(residuals_modele), lwd = 2) # densité empirique sur le même graphique
+```
+
+
+
+### Question 5
+
+Le modèle ARIMA(1,1,1) pour la série brute $X_t$ s'écrit :
+
+$$(1 - 0.2749B)(1-B)X_t = (1 - 0.7823B)\varepsilon_t$$
+
+avec $\varepsilon_t \sim WN(0, 2.153)$.
+
+
+
+
+
+
+
+###################################
+###### Partie 3 : Prévision #######
+###################################
+
+### Question 6
+
+
+
+
+
 
