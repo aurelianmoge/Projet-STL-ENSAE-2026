@@ -82,7 +82,7 @@ adf.test(as.numeric(xm))
 ```
 Le test n'est clairement pas significatif au seuil de 5% et on ne peut donc pas rejeter l'hypothèse de non-stationnarité pour ce niveau de confiance
 
-De plus, la série semble avoir une tendance déterministe forte : c'est ce que suggère la régression linéaire suivante (les coefficients ne sont pas interprétables mais peuvent nous aider à mieux calibrer nos tests).
+De plus, la série semble avoir une tendance déterministe forte : c'est ce que suggère la régression linéaire suivante (les coefficients ne sont pas interprétables mais peuvent nous aider à mieux calibrer nos tests)
 
 ```{r}
 dates <- as.yearmon(seq(from = 1990 + 0 / 12, to = 2025 + 9 / 12, by = 1 / 12))
@@ -350,7 +350,7 @@ summary(modele_complet)
 forecast(modele_complet, h=4)
 ```
 
-je met un petit texte pour voir si mes pushs marchent
+
 
 
 

@@ -54,7 +54,7 @@ pacf(as.numeric(xm_d1), lag.max = 24, main = "PACF de xm_d1")
 par(mfrow = c(1,1))
 ```
 
-L’ACF est significative à l’ordre 1, tous les autres lags sont dans les bornes (sauf peut-être lag 24 légèrement) on choisira donc q*=1. Pour la PACF, de nombreux lags sont significatifs (lags 1 à \~10-11, tous négatifs), on choisi p*=4. On constate que une ACF qui coupe clairement à 1 et une PACF qui décroit avec des oscillations sugère un modèle MA(1).
+L’ACF est significative à l’ordre 1, tous les autres lags sont dans les bornes (sauf peut-être lag 24 légèrement) on choisira donc q \* =1. Pour la PACF, de nombreux lags sont significatifs (lags 1 à \~10-11, tous négatifs), on choisi p \*=4. On constate que une ACF qui coupe clairement à 1 et une PACF qui décroit avec des oscillations sugère un modèle MA(1).
 
 On va utiliser les critères d'informations pour nous aider à choisir un modèle, avec qmax = 1 et pmax = 4
 
@@ -165,7 +165,6 @@ tex_qtest <- kable(qtest_df, format = "latex", booktabs = TRUE,
 writeLines(tex_qtest, "qtest_table.tex")
 ```
 
-
 ### Question 5
 
 On le mettra dans le rapport ça mais je met là pour l'instant.
@@ -175,3 +174,43 @@ Le modèle ARIMA(1,1,1) pour la série brute $X_t$ s'écrit :
 $$(1 - 0.2749B)(1-B)X_t = (1 - 0.7823B)\varepsilon_t$$
 
 avec $\varepsilon_t \sim WN(0, 2.153)$.
+
+Région de confiance pour les prévsions de la série différenciée ($Y_{T+1}$ et $Y_{T+2}$)
+
+```{r}
+install.packages("ellipse")
+library(ellipse)
+
+
+library(ellipse)
+
+# Extraction des coefficients du modèle déjà estimé
+phi    <- coef(modele)["ar1"]
+theta  <- coef(modele)["ma1"]
+sigma2 <- modele$sigma2
+
+# Coefficient MA(infini) psi_1
+psi1 <- phi + theta
+
+# Matrice de covariance des erreurs de prévision
+Sigma <- sigma2 * matrix(c(1,    psi1,
+                            psi1, 1 + psi1^2), nrow = 2)
+
+# Prévisions ponctuelles sur xm_d1 (= Y_hat_{T+1} et Y_hat_{T+2})
+prev   <- predict(modele, n.ahead = 2)
+Y1_hat <- as.numeric(prev$pred[1])
+Y2_hat <- as.numeric(prev$pred[2])
+
+# Tracé de l'ellipse à 95%
+ell <- ellipse(Sigma, centre = c(Y1_hat, Y2_hat), level = 0.95)
+
+plot(ell, type = "l", col = "blue", lwd = 2,
+     xlab = expression(Y[T+1]),
+     ylab = expression(Y[T+2]),
+     main = "Région de confiance à 95% pour (Y_{T+1}, Y_{T+2})")
+
+points(Y1_hat, Y2_hat, pch = 19, col = "red")
+legend("topright",
+       legend = c("Ellipse 95%", "Prévision ponctuelle"),
+       col = c("blue", "red"), lty = c(1, NA), pch = c(NA, 19))
+```
