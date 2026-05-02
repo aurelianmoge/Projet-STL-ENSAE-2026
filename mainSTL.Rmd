@@ -13,6 +13,8 @@ library(tseries) #diverses fonctions sur les séries temporelles
 library(tidyverse) #pour la manipulation des données
 library(forecast) #fonctions utiles pour les séries temporelles
 library(fUnitRoots) #pour le test ADF
+library(knitr) # pour l'export des tableaux
+library(kableExtra) # pour l'export des tableaux
 
 ```
 
@@ -115,19 +117,6 @@ xm_ts <- ts(coredata(xm), frequency = 12)
 
 # On affiche la décomposition STL de la série
 decompo_stl <- plot(stl(xm_ts, s.window = "periodic"))
-
-# On l'exporte pour le rapport
-tex_stl <- kable(decompo_stl, format = "latex", booktabs = TRUE,
-      caption = "Décomposition STL de la série") %>%
-  kable_styling(latex_options = c("hold_position"))
-writeLines(tex_stl, "tex_stl.tex")
-
-# On fait de même avec la décomposition additive (si besoin)
-decompo_add <- plot(decompose(xm_ts))
-tex_add <- kable(decompo_add, format = "latex", booktabs=TRUE,
-                 caption = "Décomposition additive de la série") %>% 
-  kable_styling(latex_options = c("hold_position"))
-writeLines(tex_add, "tex_add.tex")
 ```
 
 Une première différenciation avec un lag égal à 1 semble pertinente. On vérifie en utilisant les fonctions nsdiffs et ndiffs, qui indiquent, en se fondant sur un test de Canova-Hansen, le nombre de différenciations nécessaires pour éliminer la composante saisonnière (nsdiffs) et la tendance de la série (ndiffs).
@@ -289,8 +278,6 @@ result_kpss <- result_kpss %>%
 On exporte les tableaux pour le rapport.
 
 ```{r}
-library(knitr)
-library(kableExtra)
 
 tex_adf <- kable(result_adf, format = "latex", booktabs = TRUE,
       caption = "Résultat du test ADF") %>%
@@ -459,7 +446,24 @@ qqline(residuals_modele, col = "red")
 
 ```{r}
 # Test de normalité (rejetée)
-jarque.bera.test(residuals_modele) 
+jb <- jarque.bera.test(residuals_modele) 
+result_jb <- data.frame(
+  `Type de test` = "Jarque-Bera",
+  `Lag order` = jb$parameter, 
+  't-value' = jb$statistic,
+  `P-value` = "<2.2e-16"
+)
+result_jb <- result_jb %>% 
+  rename("Type de test" = "Type.de.test",
+         "Lag order" = "Lag.order",
+         "t-value" = "t.value",
+         "P-value" = "P.value")
+
+# On l'exporte pour le rapport
+tex_jb <- kable(result_jb, format = "latex", booktabs = TRUE,
+      caption = "Résultat du test Jarque-Bera") %>%
+  kable_styling(latex_options = c("hold_position"))
+writeLines(tex_jb, "jb_table.tex")
 
 # Histogramme pour voir quand même la tête de la distribution
 hist(residuals_modele,
