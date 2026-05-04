@@ -20,13 +20,11 @@ library(kableExtra) # pour l'export des tableaux
 
 ################################### 
 
-##### Partie 1 : les données
+## Partie 1 : les données
 
 ################################### 
 
-# Question 1
-
-# ----------
+### Question 1
 
 On importe les données et on modifie légèrement la structure du fichier pour l'exploiter dans la suite du travail.
 
@@ -45,15 +43,15 @@ summary(df)
 On transforme le fichier pour l'utiliser comme une série temporelle.
 
 ```{r}
-# On convertit en série zoo la colonne des indices
+#On convertit en série zoo la colonne des indices
 df$Indice_tabac <- as.numeric(gsub(",", ".", df$Indice_tabac))
 
-### Construction de la série temporelle
+#Construction de la série temporelle
 
 # On enregistre la série dans un fichier xm.source (on ajoute "01" à la date pour simuler une date journalière)
 xm.source <- zoo(df$Indice_tabac, order.by = as.Date(paste0(df$Libellé, "-01")))
 
-# On définit la taille de la série temporelle (434 observations)
+#On définit la taille de la série temporelle (434 observations)
 T <- length(xm.source)
 
 # On enregistre ces observations dans un fichier à part, mais on enlève les 4 dernières observations, car on cherche à les prédire
@@ -66,9 +64,7 @@ On regarde l'allure de la série avant transformation.
 plot(xm)
 ```
 
-# Question 2
-
-# ----------
+### Question 2
 
 On trouve dans la représentation de la série une tendance. Il semble également que la série ait une composante saisonnière, avec des potentielles fluctuations annuelles.
 
@@ -98,12 +94,12 @@ summary(lm(xm ~ dates))
 La régression suggère l'existence d'une forte composante liée à la tendance déterministe : pour tester la stationnarité de la série, on utilise donc des tests KPSS.
 
 ```{r}
-# On test la stationnarité autour d'une moyenne
+#On teste la stationnarité autour d'une moyenne
 kpss.test(xm)
 ```
 
 ```{r}
-# On test la stationnarité autour d'une tendance
+#On teste la stationnarité autour d'une tendance
 kpss.test(xm, null = "Trend")
 ```
 
@@ -112,10 +108,10 @@ Dans ces tests de type KPSS, l'hypothèse nulle est la stationnarité. Or, elle 
 On peut décomposer les deux effets - tendance et saisonnalité - comme suit.
 
 ```{r}
-# On renseigne que la période de la série est 12 (on s'attend à un saisonnalité annuelle)
+#On renseigne que la période de la série est 12 (on s'attend à un saisonnalité annuelle)
 xm_ts <- ts(coredata(xm), frequency = 12)
 
-# On affiche la décomposition STL de la série
+#On affiche la décomposition STL de la série
 decompo_stl <- plot(stl(xm_ts, s.window = "periodic"))
 ```
 
@@ -154,7 +150,7 @@ On regarde l'ACF de la série qui en résulte.
 acf(as.numeric(xm_d1))
 ```
 
-D'abord un test ADF
+D'abord un test ADF (Augmented Dickey-Fuller) : H0 : il y a une racine unitaire donc non stationnarité VS H1: série stationnaire
 
 ```{r}
 adf.test(as.numeric(xm_d1))
@@ -181,7 +177,7 @@ Qtests <- function(series, k, fitdf = 0) {
   return(pvals)
 }
 
-# On construit aussi une fonction pour chercher automatiquement le plus petit nombre de lags pour lequel les résidus ne sont pas autocorrélés
+#On construit aussi une fonction pour chercher automatiquement le plus petit nombre de lags pour lequel les résidus ne sont pas autocorrélés
 adf_valid <- function(series, kmax = 24, adftype = "c", lb_lag = 12) {
   for (k in 0:kmax) {
     adf <- adfTest(series, lags = k, type = adftype)
@@ -210,15 +206,17 @@ Qtests(adf_d1@test$lm$residuals, 36,
        fitdf = length(adf_d1@test$lm$coefficients))
 ```
 
-Le test ADF permet de rejeter l'hypothèse de non-stationnarité au seuil de 1%. Cependant, il importe de le compléter avec un test de PP puis avec des tests de type KPSS
+Le test ADF permet de rejeter l'hypothèse de non-stationnarité au seuil de 1%. Cependant, il importe de le compléter avec un test de PP puis avec des tests de type KPSS.
 
-On réalise d'abord un test de Philippe Peron(PP), qui rejette également l'hypothèse de non-stationnarité.
+On réalise d'abord un test de Philippe Peron(PP) (même hypothèses que le ADF mais laisse plus de liberté sur la forme des erreurs, pas forcément des bruits blancs).
+
+Le test de PP rejette également l'hypothèse de non-stationnarité.
 
 ```{r}
 pp.test(as.numeric(xm_d1))
 ```
 
-Puis on réalise un test de type KPSS.
+Puis on réalise un test de type KPSS (H0 : trend stationnarity) :
 
 ```{r}
 kpss.test(xm_d1, null = "Level")
@@ -231,7 +229,7 @@ En somme, les trois tests (PP, ADF, KPSS) sont interprétables et donnent la sta
 On en sort les tableaux suivants.
 
 ```{r}
-# Tableau du test ADF
+#Tableau du test ADF
 lag_order <- as.numeric(adf_d1@test$parameter[1])
 result_adf <- data.frame(
   "Type de test" = "ADF",
@@ -245,7 +243,7 @@ result_adf <- result_adf %>%
          "t-value" = "t.value",
          "P-value" = "P.value")
 
-# Tableau du test PP
+#Tableau du test PP
 pp <- pp.test(xm_d1)
 result_pp <- data.frame(
   `Type de test` = "PP",
@@ -296,9 +294,7 @@ writeLines(tex_kpss, "kpss_table.tex")
 
 ```
 
-# Question 3
-
-# ----------
+### Question 3
 
 ```{r}
 plot(xm)
@@ -307,13 +303,13 @@ plot(xm_d1)
 
 ################################### 
 
-##### Partie 2 : modèles ARMA
+## Partie 2 : modèles ARMA
 
 ################################### 
 
 ### Question 4
 
-Là on va tracer les ACF et PCF de la série xm_d1 pour trouver les ordres maximum p\* et q\* vraisemblables :
+On trace les ACF et PCF de la série xm_d1 pour trouver les ordres maximum p\* et q\* vraisemblables :
 
 ```{r}
 par(mfrow = c(1,2))
@@ -324,10 +320,10 @@ par(mfrow = c(1,1))
 
 L’ACF est significative à l’ordre 1, tous les autres lags sont dans les bornes (sauf peut-être lag 24 légèrement) on choisira donc q\*=1. Pour la PACF, de nombreux lags sont significatifs (lags 1 à \~10-11, tous négatifs), on choisi p\*=4. On constate que une ACF qui coupe clairement à 1 et une PACF qui décroit avec des oscillations sugère un modèle MA(1).
 
-On va utiliser les critères d'informations pour nous aider à choisir un modèle, avec qmax = 1 et pmax = 4
+On utilise les critères d'informations pour nous aider à choisir un modèle, avec qmax = 1 et pmax = 4. On regarde les critères d'information AIC et BIC pour tout les modèles ARMA(p,1) avec p = 1,2,3 et 4.
 
 ```{r}
-pmax <- 4
+pmax <- 4 
 qmax <- 1
 
 mat <- matrix(NA, nrow = pmax+1, ncol = qmax+1)
@@ -336,6 +332,7 @@ colnames(mat) <- paste0("q=", 0:qmax)
 AICs <- mat
 BICs <- mat
 
+#renvoie les valeurs numériques des AIC et BIC pour chaque modèle
 pqs <- expand.grid(0:pmax, 0:qmax)
 for (row in 1:nrow(pqs)) {
   p <- pqs[row, 1]
@@ -346,10 +343,10 @@ for (row in 1:nrow(pqs)) {
 }
 
 AICs
-AICs == min(AICs, na.rm = TRUE)  # modèle minimisant l'AIC
+AICs == min(AICs, na.rm = TRUE)  #modèle minimisant l'AIC
 
 BICs
-BICs == min(BICs, na.rm = TRUE)  # modèle minimisant le BIC
+BICs == min(BICs, na.rm = TRUE)  #modèle minimisant le BIC
 ```
 
 Les deux critères AIC et BIC désignent le même modèle : ARMA(1,1) sur xm_d1, soit un ARIMA(1,1,1) sur la série brute.
@@ -363,7 +360,7 @@ summary(modele)
 
 Le coefficient AR(1) est significatif (le rapport entre le coefficient estimé et son erreur standard est aplus grand en valeur absolue que 1.96). En effet on a : 0.2749 / 0.0740 = 3.71 \> 1.96 Le coefficient MA(1) est significatif (le rapport entre le coefficient estimé et son erreur standard est plus grand en valeur absolue que 1.96). En effet on a -0.7823 / 0.0486 = -16.1 \> 1.96 en valeur absolue.
 
-Maintenant on effectue un test d'autocorrélation sur les résidus. On utilise la fonction Qtest. On va jusqu'au lag 24 par convention sur des données annuelles.
+On effectue un test d'autocorrélation sur les résidus. On utilise la fonction Qtest. On va jusqu'au lag 24 par convention sur des données annuelles.
 
 ```{r}
 # Je recode Qtest dans le brouillon
@@ -433,7 +430,7 @@ tex_qtest <- kable(qtest_df, format = "latex", booktabs = TRUE,
 writeLines(tex_qtest, "qtest_table.tex")
 ```
 
-On vérifie la blancheur des résidus par un QQ-plot
+On vérifie la blancheur des résidus par un QQ-plot.
 
 ```{r}
 # On récupère les résidus
@@ -465,7 +462,7 @@ tex_jb <- kable(result_jb, format = "latex", booktabs = TRUE,
   kable_styling(latex_options = c("hold_position"))
 writeLines(tex_jb, "jb_table.tex")
 
-# Histogramme pour voir quand même la tête de la distribution
+# Histogramme pour voir l'alure de la distribution
 hist(residuals_modele,
      probability = TRUE,
      col = "lightgray",
@@ -475,34 +472,24 @@ hist(residuals_modele,
 lines(density(residuals_modele), lwd = 2) # densité empirique sur le même graphique
 ```
 
-### Question 5
-
-Le modèle ARIMA(1,1,1) pour la série brute $X_t$ s'écrit :
-
-$$(1 - 0.2749B)(1-B)X_t = (1 - 0.7823B)\varepsilon_t$$
-
-avec $\varepsilon_t \sim WN(0, 2.153)$.
-
-################################### 
-
 ## Partie 3 : Prévision
 
-################################### 
 ### Question 8
+
 Représentation graphique de la région en utilisant la fonction ellipse.
+
 ```{r}
+#intallation du package nécessaire pour représenter graphiquement la Région de confiance
 install.packages("ellipse")
 library(ellipse)
 
-
-library(ellipse)
 
 # Extraction des coefficients du modèle déjà estimé
 phi    <- coef(modele)["ar1"]
 theta  <- coef(modele)["ma1"]
 sigma2 <- modele$sigma2
 
-# Coefficient MA(infini) psi_1
+#Coefficient MA(infini) psi_1
 psi1 <- phi + theta
 
 # Matrice de covariance des erreurs de prévision
@@ -514,7 +501,7 @@ prev   <- predict(modele, n.ahead = 2)
 Y1_hat <- as.numeric(prev$pred[1])
 Y2_hat <- as.numeric(prev$pred[2])
 
-# Tracé de l'ellipse à 95%
+#Tracé de l'ellipse à 95%, on met les previsions ponctuelles au centre
 ell <- ellipse(Sigma, centre = c(Y1_hat, Y2_hat), level = 0.95)
 
 plot(ell, type = "l", col = "blue", lwd = 2,
@@ -527,4 +514,3 @@ legend("topright",
        legend = c("Ellipse 95%", "Prévision ponctuelle"),
        col = c("blue", "red"), lty = c(1, NA), pch = c(NA, 19))
 ```
-
